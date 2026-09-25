@@ -1,0 +1,9 @@
+langchain
+langchain-community
+langchain-groq
+langchain-google-genai
+langchain-openai
+python-dotenv
+text-to-sql
+pydantic
+pydantic-ai
