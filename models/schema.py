@@ -9,6 +9,7 @@ class AgentSchema(BaseModel):
     # See below, I know that "messages" is a list, but how should the list behave?
     # It should behave like a basket where we are keep on adding the data and nothing else (not updating, not removing etc).
     messages: Annotated[list, add] = Field(..., description="List of messages to be processed by the agent.") # Chat history
+    user_question = str = Field(..., description="The original question asked by the user.")
     curated_ques: str = Field(..., description="Curated user question.")
     prompt_query: str = Field(..., description="A detailed prompt with SQL DB context that will help agent to generate SQL query.") # Here context can be fetched from Vector Database / PGVector
 
