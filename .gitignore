@@ -1,2 +1,4 @@
 .env
 ideas.md
+__pycache__/
+schema_test.txt
