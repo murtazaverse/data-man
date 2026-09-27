@@ -2,6 +2,7 @@ import os
 
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.graph import END, START, StateGraph
 
 from models.schema import AgentSchema, JudgeSchema
 from utils.database import DatabaseUtils
@@ -9,7 +10,8 @@ from utils.llm_selection import pick_llm
 
 load_dotenv()
 
-# --------------- AI Code -----------
+
+# --------------- AI Code ---------------
 
 
 def curate_ques(state: AgentSchema) -> AgentSchema:
@@ -24,7 +26,7 @@ def curate_ques(state: AgentSchema) -> AgentSchema:
     """
     model = pick_llm("low")
     response = model.invoke(f"Curate the following question: {state.user_question}").content
-    state.curated_ques = response.content[0]["text"]
+    state.curated_ques = response
 
     # Also setting the messages here
     state.messages = state.messages + [
@@ -55,7 +57,7 @@ def prompt_query_context(state: AgentSchema) -> AgentSchema:
 
     obj = DatabaseUtils(conn)
 
-    schema_details = obj.schema_details  # Fetch schema details from the 'public' schema
+    schema_details = obj.schema_details("public")  # Fetch schema details from the 'public' schema
 
     # Constructing the prompt query for the agent to generate the SQL query
     prompt = f"""
@@ -118,7 +120,7 @@ def is_safe_sql(state: AgentSchema) -> AgentSchema:
     sql_query = state.generated_sql_query
 
     llm = pick_llm("medium")
-    llm_judge = llm.with_structured_output(JudgeSchema)
+    llm_judge = llm.with_structured_output(JudgeSchema, method="json_schema")
 
     # Setting up prompt for LLM to judge
     prompt = f"""
@@ -152,7 +154,8 @@ def canceled_sql(state: AgentSchema) -> AgentSchema:
     state.messages = state.messages + [
         AIMessage(content=f"{state.final_answer}")
     ]  # Append the final answer to the messages list, AI Message because this is an AI message
-
+    # Q: Do we need to pass the chat history aswell, whenever we are talking to this particular agent?
+    # A: Ideally yes, as we can see that this agent is performing all of the things above, and have all the context, it can actually better answer you everything. But the thing is , this is not an independent agent, this is a subagent, so ideally the chat should be maintained at the parent level (which I'd be adding later). So, we do not need to send the chat directly from the Agent, but from outside the agent, so that  it can inherit that entire chat history. Because, what will happen, everytime this agent will be called, this will be getting the parameters from the outside, but when we are just executing the agent, just for the sake of testing it, we can give all the information on our own. In this agent, we wont be passing the chat history, we'll be passing from the outside.
     return state
 
 
@@ -176,3 +179,96 @@ def execute_sql(state: AgentSchema) -> AgentSchema:
     state.sql_query_execution_result = execution_result
 
     return state
+
+
+# Represent the final answer Node
+def represent_final_answer(state: AgentSchema) -> AgentSchema:
+
+    execution_result = state.sql_query_execution_result
+    curated_question = state.curated_ques
+
+    llm = pick_llm("low")
+
+    prompt = f"""
+    You are an SQL analyst agent. Your task is to provide a final answer to the user based on the
+    execution result of the SQL query and the user's original question. The final answer should be
+    concise, clear, and directly address the user's query. Avoid including any SQL code or technical
+    details in the final answer. The final answer should be in a user-friendly format that is easy to
+    understand. If the execution result is empty or does not provide a clear answer to the user's question, explain this in the final answer. \n
+    Here is the execution result: {execution_result} \n
+    Here is the user's original question: {curated_question}
+    """
+
+    llm_response = llm.invoke(prompt).content  # Get the final answer from the LLM
+
+    state.final_answer = llm_response
+    state.messages = state.messages + [
+        AIMessage(content=f"{llm_response}")
+    ]  # Append the final answer to the messages list
+
+    return state
+
+
+# Q: Do we need to pass the chat history aswell, whenever we are talking to this particular agent?
+# A: Ideally yes, as we can see that this agent is performing all of the things above, and have all the context, it can actually better answer you everything. But the thing is , this is not an independent agent, this is a subagent, so ideally the chat should be maintained at the parent level (which I'd be adding later). So, we do not need to send the chat directly from the Agent, but from outside the agent, so that  it can inherit that entire chat history. Because, what will happen, everytime this agent will be called, this will be getting the parameters from the outside, but when we are just executing the agent, just for the sake of testing it, we can give all the information on our own.
+
+
+# =================== GRAPH BUILDER ==============
+
+sql_agent_graph = StateGraph(AgentSchema)  # The thing whose state we need to track.
+
+# Now its time to make the nodes, prompt_query_contexti.e. the functions we have defined above.
+sql_agent_graph.add_node(curate_ques, "curate_ques")
+sql_agent_graph.add_node(prompt_query_context, "prompt_query_context")
+sql_agent_graph.add_node(generate_sql, "generate_sql")
+sql_agent_graph.add_node(is_safe_sql, "is_safe_sql")
+sql_agent_graph.add_node(canceled_sql, "canceled_sql")
+sql_agent_graph.add_node(execute_sql, "execute_sql")
+sql_agent_graph.add_node(represent_final_answer, "represent_final_answer")
+
+# Now the edges, i.e. the flow of the graph.
+sql_agent_graph.add_edge(START, "curate_ques")
+sql_agent_graph.add_edge("curate_ques", "prompt_query_context")
+sql_agent_graph.add_edge("prompt_query_context", "generate_sql")
+sql_agent_graph.add_edge("generate_sql", "is_safe_sql")
+sql_agent_graph.add_conditional_edges(
+    "is_safe_sql",
+    lambda state: "execute_sql" if state.is_safe == "Yes" else "canceled_sql",
+    {
+        "execute_sql": "execute_sql",
+        "canceled_sql": "canceled_sql",
+    },
+)
+sql_agent_graph.add_edge("canceled_sql", END)
+sql_agent_graph.add_edge("execute_sql", "represent_final_answer")
+sql_agent_graph.add_edge("represent_final_answer", END)
+
+
+# Compile the graph to ensure all nodes and edges are valid
+sql_analyst = sql_agent_graph.compile()
+
+
+if __name__ == "__main__":
+    # Optional
+    from IPython.display import Image
+
+    img = Image(sql_analyst.get_graph().draw_mermaid_png())
+    with open("sql_analyst_graph.png", "wb") as f:
+        f.write(img.data)
+
+    # Now to test the agent.
+    # Setting up Input Schema
+    input_schema = {
+        "messages": [],
+        "user_question": "What is the average rating given to drivers?",  # Question in layman terms, which will be converted to SQL query by the agent.
+        "curated_ques": "",
+        "prompt_query_context": "",
+        "is_safe": "No",
+        "generated_sql_query": "",
+        "sql_query_execution_result": "",
+        "final_answer": "",
+        "comments": "",
+    }
+    # Note: The rest of the values are empty as they will be filled in by the agent as it processes the input.
+    response = sql_analyst.invoke(input_schema)  # Invoke the agent with the input schema.
+    print(response["final_answer"])  # Print only the final response from the agent.

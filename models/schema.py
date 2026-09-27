@@ -14,9 +14,9 @@ class AgentSchema(BaseModel):
     messages: Annotated[list, add] = Field(
         ..., description="List of messages to be processed by the agent."
     )  # Chat history
-    user_question = str = Field(..., description="The original question asked by the user.")
+    user_question: str = Field(..., description="The original question asked by the user.")
     curated_ques: str = Field(..., description="Curated user question.")
-    prompt_query: str = Field(
+    prompt_query_context: str = Field(
         ...,
         description="A detailed prompt with SQL DB context that will help agent to generate SQL query.",
     )  # Here context can be fetched from Vector Database / PGVector
@@ -24,6 +24,9 @@ class AgentSchema(BaseModel):
     # Here, I can use JEV / GUARDRAILS
     is_safe: Literal["Yes", "No"] = Field(
         ..., description="Indicates whether the generated SQL query is safe or not?"
+    )
+    comments: str = Field(
+        ..., description="Additional comments or feedback from the agent regarding the SQL query"
     )
     generated_sql_query: str = Field(
         ...,

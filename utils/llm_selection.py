@@ -21,9 +21,9 @@ def pick_llm(level: str, temperature: int = 0, provider: str = "groq"):
         if level == "low":
             model_name = f"{provider}:openai/gpt-oss-20b"
         elif level == "medium":
-            model_name = f"{provider}:gemini-3.5-flash-lite"
+            model_name = f"{provider}:openai/gpt-oss-20b"
         elif level == "high":
-            model_name = f"{provider}:gemini-3.8-flash-lite-tts"
+            model_name = f"{provider}:openai/gpt-oss-20b"
         else:
             raise ValueError("Invalid Level!")
     elif provider == "openai":

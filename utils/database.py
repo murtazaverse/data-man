@@ -33,17 +33,14 @@ class DatabaseUtils:
         I am preparing the context here for the LLM.
         (Use RAG here later)
         """
+        schema_info_context = ""
         cursor = None
         conn = self.connection
+        cursor = conn.cursor()  # The object that we get from the postgre connection, with the help of it we can run the queries.
+        schema_info_context = (
+            f"Database Schema: {schema_name}\n"  # We will keep on adding details here
+        )
         try:
-            schema_info_context = ""
-
-            cursor = conn.cursor()  # The object that we get from the postgre connection, with the help of it we can run the queries.
-
-            schema_info_context = (
-                f"Database Schema: {schema_name}\n"  # We will keep on adding details here
-            )
-
             # Fetch all the tables from the schema name
             cursor.execute(
                 "SELECT table_name from information_schema.tables where table_schema=%s",
@@ -104,8 +101,9 @@ class DatabaseUtils:
             self.connection.close()
 
     def execute_sql(self, query):
+        connection = self.connection
+        cursor = None
         try:
-            connection = self.connection
             cursor = connection.cursor()
             cursor.execute(query)
             result = cursor.fetchall()
@@ -113,7 +111,7 @@ class DatabaseUtils:
             return str(result)  # Convert the list'd result into string format
         except Exception as e:
             print(f"Error executing query: {e}")
-            return None
+            return f"Error executing query: {e}"
         finally:
             if cursor:
                 cursor.close()
