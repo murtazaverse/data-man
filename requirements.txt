@@ -8,3 +8,5 @@ text-to-sql
 pydantic
 pydantic-ai
 ipython
+typesafe-sdk>=0.7.2
+streamlit>=1.49.0

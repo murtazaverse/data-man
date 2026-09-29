@@ -14,7 +14,9 @@ dependencies = [
     "pydantic>=2.13.5",
     "pydantic-ai>=2.49.0",
     "python-dotenv>=1.2.3",
+    "streamlit>=1.49.0",
     "text-to-sql>=0.0.6",
+    "typesafe-sdk>=0.7.2",
 ]
 
 [dependency-groups]

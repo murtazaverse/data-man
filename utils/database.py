@@ -27,6 +27,35 @@ class DatabaseUtils:
             print(f"Error connecting to the database: {e}")
             self.connection = None
 
+    def table_catalog(self, schema_name: str) -> list[dict[str, str]]:
+        """Describe accessible tables using metadata only, without sample rows."""
+        if self.connection is None:
+            raise ConnectionError("The database connection is unavailable.")
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT table_name, column_name, data_type
+                FROM information_schema.columns
+                WHERE table_schema = %s
+                ORDER BY table_name, ordinal_position
+                """,
+                (schema_name,),
+            )
+            rows = cursor.fetchall()
+
+        columns_by_table: dict[str, list[str]] = {}
+        for table_name, column_name, data_type in rows:
+            columns_by_table.setdefault(table_name, []).append(f"{column_name} ({data_type})")
+
+        return [
+            {
+                "name": f"{schema_name}.{table_name}",
+                "description": f"{schema_name}.{table_name}: {', '.join(columns)}",
+            }
+            for table_name, columns in columns_by_table.items()
+        ]
+
     def schema_details(self, schema_name):
         """
         Query to find the context from my database.
