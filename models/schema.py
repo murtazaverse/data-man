@@ -58,3 +58,11 @@ class JudgeSchema(BaseModel):
     comments: str = Field(
         ..., description="Additional comments or feedback from the judge regarding the SQL query"
     )
+
+
+class ETLAgentSchema(BaseModel):
+    """This is a ReACT Agent so we do not need to maintain any special state of the agent, we just have to keep the track of messages"""
+
+    messages: Annotated[list, add] = Field(
+        default_factory=list, description="List of messages to be processed by the agent."
+    )  # Chat history
