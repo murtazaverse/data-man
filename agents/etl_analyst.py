@@ -1,5 +1,8 @@
+from langchain.messages import AIMessage, HumanMessage, ToolMessage
 from langchain.tools import tool
+from langgraph.graph import END, START, StateGraph
 
+from models.schema import ETLAgentSchema
 from utils.etl_tools import ETLTools
 from utils.llm_selection import pick_llm
 
@@ -56,9 +59,10 @@ def transform_load_tool(
         """
 
     response = llm.invoke(prompt)
+    content = response.content if hasattr(response, "content") else response
 
     # Clean the response to extract only the code part
-    code = response.split("```")[1] if "```" in response else response
+    code = content.split("```")[1] if "```" in content else content
     code = code.replace("python", "").strip()
 
     # Execute the code
@@ -80,3 +84,123 @@ llm_with_tools = llm.bind_tools(tools)
 
 
 # ----------------------------------- AGENT GRAPH -----------------------------
+
+
+# LLM NODE
+def llm_node(state: ETLAgentSchema) -> ETLAgentSchema:
+    """
+    The LLM Node is the brain of this network, take the user question and then will make the decision of whether to make a toolcall or not.
+    """
+
+    prompt = f"""
+            You are a Python Data Analyst who has access to tools that can extract and load,
+            transform and load data. You will be provided with a user's question
+            and you would need to perform the right ETL operations as per the user's question.
+            If the operation is performed then inform the user and end the coversation.
+            Here's the chat history: {state.messages}\n
+    """
+
+    response = llm_with_tools.invoke(prompt)
+
+    state.messages += [response]
+
+    return state
+
+
+# TOOL NODE
+def tool_node(state: ETLAgentSchema) -> ETLAgentSchema:
+    """
+    This node is responsible for invoking the appropriate tool based on the user's question and the context provided by the LLM.
+    """
+    tool_results = []
+    tools_by_name = {tool.name: tool for tool in tools}
+    tool_calls = state.messages[-1].tool_calls
+
+    for tool_call in tool_calls:
+        tool = tools_by_name[tool_call["name"]]
+        tool_result = tool.invoke(tool_call["args"])
+        tool_results.append(ToolMessage(content=tool_result, tool_call_id=tool_call["id"]))
+
+    state.messages += tool_results
+
+    return state
+
+
+# IS TOOLCALL DECISION
+
+
+def is_tool_call(state: ETLAgentSchema):
+    """
+    This function checks if we are gonna make a toolcall or not.
+    """
+
+    tool_call_details = state.messages[-1].tool_calls
+
+    if tool_call_details:
+        return "tool_node"
+    else:
+        return END
+
+
+# ============================== Generating the graph ==================================
+
+# ETL Analyst Graph
+etl_analyst_graph = StateGraph(ETLAgentSchema)
+
+# Adding the nodes
+etl_analyst_graph.add_node(llm_node, "llm_node")
+etl_analyst_graph.add_node(tool_node, "tool_node")
+
+# Adding the edges
+etl_analyst_graph.add_edge(START, "llm_node")
+etl_analyst_graph.add_conditional_edges(
+    "llm_node",
+    lambda state: "tool_node" if state.messages[-1].tool_calls else END,
+    {
+        "tool_node": "tool_node",  # value of x from lambda func
+        END: END,  # value of x from lambda func
+    },
+)
+
+etl_analyst_graph.add_edge("tool_node", "llm_node")
+
+
+etl_analyst = etl_analyst_graph.compile()
+
+
+if __name__ == "__main__":
+    # prompt = f"""
+    #         You are a Python Data Analyst who has access to tools that can extract and load,
+    #         transform and load data. You will be provided with a user's question
+    #         and you would need to perform the right ETL operations as per the user's question.
+    #         If the operation is performed then inform the user and end the coversation.
+    #         Here's the chat history: {[]}\n
+    # """
+    # state = ETLAgentSchema()
+    # state.messages = []
+    # response = llm_node(state)
+    # print(response.messages[-1].tool_calls)
+
+    from IPython.display import Image
+
+    img = Image(etl_analyst.get_graph().draw_mermaid_png())
+    with open("etl_analyst_graph.png", "wb") as f:
+        f.write(img.data)
+
+    response = etl_analyst.invoke(
+        {
+            "messages": [
+                HumanMessage(
+                    content="I want to extract the data from the API endpoint 'https://pokeapi.co/api/v2/pokemon' and save it to data/extract folder in the csv folder, and then transform that data into json format and save it to data/transform folder."
+                )
+            ]
+        }
+    )
+
+    print(
+        [
+            message.tool_calls
+            for message in response["messages"]
+            if isinstance(message, AIMessage) and message.tool_calls
+        ]
+    )

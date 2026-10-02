@@ -35,3 +35,4 @@ target-version = "py312"
 select = ["E", "W", "F", "I", "B", "UP"]
 # Long lines are handled by `ruff format`; long strings/comments it can't wrap are allowed.
 ignore = ["E501"]
+extend-safe-fixes = ["W291"]
